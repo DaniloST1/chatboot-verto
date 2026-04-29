@@ -4,28 +4,36 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const { handleMessage } = require('./flow');
 const { setClient } = require('./whatsapp');
 const express = require('express');
+const cors = require('cors');
 
-// Cria um servidor web básico apenas para manter as plataformas de nuvem felizes
+// Cria um servidor web para expor a API do QR Code
 const app = express();
+app.use(cors()); // Permite que o Verto acesse a API
 const port = process.env.PORT || 3000;
 
+let currentQR = null;
+let isConnected = false;
+
 app.get('/', (req, res) => {
-  res.send('O robô do WhatsApp está rodando perfeitamente!');
+  res.send('O robô do WhatsApp está rodando!');
+});
+
+// Endpoint que o painel Verto vai chamar
+app.get('/api/qr', (req, res) => {
+  res.json({ qr: currentQR, connected: isConnected });
 });
 
 app.listen(port, () => {
-  console.log(`Servidor de monitoramento rodando na porta ${port}`);
+  console.log(`Servidor rodando na porta ${port}`);
 });
 
-// Inicializa o cliente do WhatsApp Web simulado
 const client = new Client({
-    authStrategy: new LocalAuth(), // Salva a sessão para você não precisar ler o QR Code toda hora
+    authStrategy: new LocalAuth(),
     puppeteer: {
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     }
 });
 
-// Fornece a instância do cliente para o arquivo whatsapp.js
 setClient(client);
 
 client.on('qr', (qr) => {
@@ -33,17 +41,25 @@ client.on('qr', (qr) => {
     console.log('📱 ESCANEIE O QR CODE ABAIXO COM O SEU WHATSAPP');
     console.log('=========================================\n');
     qrcode.generate(qr, { small: true });
+    
+    currentQR = qr; // Salva o QR Code para a API
+    isConnected = false;
 });
 
 client.on('ready', () => {
-    console.log('\n✅ Tudo pronto! O Robô do WhatsApp está conectado e ouvindo mensagens!\n');
+    console.log('\n✅ Tudo pronto! O Robô do WhatsApp está conectado!\n');
+    currentQR = null;
+    isConnected = true;
+});
+
+client.on('disconnected', () => {
+    isConnected = false;
+    currentQR = null;
 });
 
 client.on('message', async (msg) => {
-    // Ignora mensagens de grupos ou mensagens do sistema
     if (msg.from.includes('@g.us') || msg.from === 'status@broadcast') return;
 
-    // Se o usuário clicar em um botão ou lista, extraímos o ID ou o Título
     let userText = msg.body;
     if (msg.type === 'list_response') {
         userText = msg.selectedRowId || msg.body;
